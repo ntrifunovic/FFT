@@ -1,0 +1,74 @@
+package fft;
+
+import com.maxeler.maxcompiler.v2.build.EngineParameters;
+import com.maxeler.maxcompiler.v2.managers.custom.CustomManager;
+import com.maxeler.maxcompiler.v2.managers.custom.DFELink;
+import com.maxeler.maxcompiler.v2.managers.custom.blocks.KernelBlock;
+import com.maxeler.maxcompiler.v2.managers.custom.stdlib.Max3RingConnection;
+import com.maxeler.maxcompiler.v2.managers.custom.stdlib.MaxRingBidirectionalStream;
+import com.maxeler.maxcompiler.v2.managers.engine_interfaces.CPUTypes;
+import com.maxeler.maxcompiler.v2.managers.engine_interfaces.EngineInterface;
+import com.maxeler.maxcompiler.v2.managers.engine_interfaces.InterfaceParam;
+
+public class FFTManager extends CustomManager {
+
+	public FFTManager(EngineParameters engineParameters, int n) {
+		super(engineParameters);
+		KernelBlock bitreverseFaza = addKernel(
+				new BitReverseKernel(makeKernelParameters("BitreverseFaza"), n));
+
+		KernelBlock prvaFaza = addKernel(
+					new FFTKernel(makeKernelParameters("PrvaFaza"), n, 0, Integer.numberOfTrailingZeros(n)/2, false, true));
+
+		DFELink in_real = addStreamFromCPU("in_real");
+		DFELink in_imag = addStreamFromCPU("in_imag");
+
+		bitreverseFaza.getInput("in_real") <== in_real;
+		bitreverseFaza.getInput("in_imag") <== in_imag;
+
+		prvaFaza.getInput("in_real") <== bitreverseFaza.getOutput("out_real");
+		prvaFaza.getInput("in_imag") <== bitreverseFaza.getOutput("out_imag");
+
+		MaxRingBidirectionalStream real_ring = addMaxRingBidirectionalStream("realRingStream", Max3RingConnection.MAXRING_A);
+		MaxRingBidirectionalStream imag_ring = addMaxRingBidirectionalStream("imagRingStream", Max3RingConnection.MAXRING_A);
+
+		prvaFaza.getInput("in_real_dummy") <== real_ring.getLinkFromRemoteDFE();
+		prvaFaza.getInput("in_imag_dummy") <== imag_ring.getLinkFromRemoteDFE();
+
+		real_ring.getLinkToRemoteDFE() <== prvaFaza.getOutput("out_real");
+		imag_ring.getLinkToRemoteDFE() <== prvaFaza.getOutput("out_imag");
+	}
+
+	static EngineInterface interfaceDefault (int n) {
+		EngineInterface ei = new EngineInterface();
+		InterfaceParam size = ei.addParam("dataSize", CPUTypes.UINT64);
+
+		ei.setTicks("PrvaFaza", size);
+		ei.setTicks("BitreverseFaza", size);
+
+		ei.setStream("in_real", CPUTypes.FLOAT, size * n * CPUTypes.FLOAT.sizeInBytes());
+		ei.setStream("in_imag", CPUTypes.FLOAT, size * n * CPUTypes.FLOAT.sizeInBytes());
+
+		return ei ;
+	}
+
+	public static void main(String[] args) {
+		EngineParameters params = new EngineParameters(args);
+
+		int n = Integer.parseInt(System.getenv("n"));
+
+		System.out.println(n);
+
+		FFTManager manager = new FFTManager(params, n);
+
+		//manager.setIO(IOType.ALL_CPU);
+		manager.addMaxFileConstant("n", n);
+		manager.createSLiCinterface(interfaceDefault(n));
+
+		//manager.getBuildConfig().setBuildEffort(Effort.LOW);
+		manager.getBuildConfig().setMPPRCostTableSearchRange(1, 3);
+		manager.getBuildConfig().setMPPRParallelism(3);
+
+		manager.build();
+	}
+}

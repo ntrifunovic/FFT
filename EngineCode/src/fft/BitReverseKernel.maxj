@@ -1,0 +1,51 @@
+package fft;
+
+import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelParameters;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEArray;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEArrayType;
+
+class BitReverseKernel extends Kernel {
+
+	private static final DFEType floatType = dfeFloat(8,24);
+
+	protected BitReverseKernel(KernelParameters parameters, int n) {
+		super(parameters);
+
+		DFEArrayType<DFEVar> arrayType = new DFEArrayType<DFEVar>(floatType, n);
+
+		DFEArray<DFEVar> in_real = io.input("in_real", arrayType);
+		DFEArray<DFEVar> in_imag = io.input("in_imag", arrayType);
+
+
+		int log_n = Integer.numberOfTrailingZeros(n);
+
+		DFEVar[] real = new DFEVar[n];
+		DFEVar[] imag = new DFEVar[n];
+
+		for(int i = 0; i < n; i++) {
+			int j = Integer.reverse(i) >>> (32 - log_n);
+
+		    real[i] = in_real[j];
+		    imag[i] = in_imag[j];
+		}
+
+		DFEArray<DFEVar> out_real = arrayType.newInstance(this);
+
+		for (int i = 0; i < n; i++)
+			out_real[i] <== real[i];
+
+		io.output("out_real", out_real, arrayType);
+
+		DFEArray<DFEVar> out_imag = arrayType.newInstance(this);
+
+		for (int i = 0; i < n; i++)
+			out_imag[i] <== imag[i];
+
+		io.output("out_imag", out_imag, arrayType);
+
+	}
+
+}

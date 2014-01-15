@@ -1,0 +1,69 @@
+package fft;
+
+import com.maxeler.maxcompiler.v2.build.EngineParameters;
+import com.maxeler.maxcompiler.v2.managers.custom.CustomManager;
+import com.maxeler.maxcompiler.v2.managers.custom.DFELink;
+import com.maxeler.maxcompiler.v2.managers.custom.blocks.KernelBlock;
+import com.maxeler.maxcompiler.v2.managers.custom.stdlib.Max3RingConnection;
+import com.maxeler.maxcompiler.v2.managers.custom.stdlib.MaxRingBidirectionalStream;
+import com.maxeler.maxcompiler.v2.managers.engine_interfaces.CPUTypes;
+import com.maxeler.maxcompiler.v2.managers.engine_interfaces.EngineInterface;
+import com.maxeler.maxcompiler.v2.managers.engine_interfaces.InterfaceParam;
+
+public class FFT2Manager extends CustomManager {
+
+	public FFT2Manager(EngineParameters engineParameters, int n) {
+		super(engineParameters);
+
+		KernelBlock drugaFaza = addKernel(
+				new FFTKernel(makeKernelParameters("DrugaFaza"), n, Integer.numberOfTrailingZeros(n)/2, Integer.numberOfTrailingZeros(n), true, false));
+
+		MaxRingBidirectionalStream real_ring = addMaxRingBidirectionalStream("realRingStream", Max3RingConnection.MAXRING_A);
+		MaxRingBidirectionalStream imag_ring = addMaxRingBidirectionalStream("imagRingStream", Max3RingConnection.MAXRING_A);
+
+		real_ring.getLinkToRemoteDFE() <== drugaFaza.getOutput("out_real_dummy");
+		imag_ring.getLinkToRemoteDFE() <== drugaFaza.getOutput("out_imag_dummy");
+
+		drugaFaza.getInput("in_real") <== real_ring.getLinkFromRemoteDFE();
+		drugaFaza.getInput("in_imag") <== imag_ring.getLinkFromRemoteDFE();
+
+		DFELink out_real = addStreamToCPU("out_real");
+		DFELink out_imag = addStreamToCPU("out_imag");
+
+		out_real <== drugaFaza.getOutput("out_real");
+		out_imag <== drugaFaza.getOutput("out_imag");
+
+	}
+
+	static EngineInterface interfaceDefault (int n) {
+		EngineInterface ei = new EngineInterface();
+		InterfaceParam size = ei.addParam("dataSize", CPUTypes.UINT64);
+
+		ei.setTicks("DrugaFaza", size);
+
+		ei.setStream("out_real", CPUTypes.FLOAT, size * n * CPUTypes.FLOAT.sizeInBytes());
+		ei.setStream("out_imag", CPUTypes.FLOAT, size * n * CPUTypes.FLOAT.sizeInBytes());
+
+		return ei ;
+	}
+
+	public static void main(String[] args) {
+		EngineParameters params = new EngineParameters(args);
+
+		int n = Integer.parseInt(System.getenv("n"));
+
+		System.out.println(n);
+
+		FFT2Manager manager = new FFT2Manager(params, n);
+
+		//manager.setIO(IOType.ALL_CPU);
+		manager.addMaxFileConstant("n", n);
+		manager.createSLiCinterface(interfaceDefault(n));
+
+		//manager.getBuildConfig().setBuildEffort(Effort.LOW);
+		manager.getBuildConfig().setMPPRCostTableSearchRange(1, 3);
+		manager.getBuildConfig().setMPPRParallelism(3);
+
+		manager.build();
+	}
+}

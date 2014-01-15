@@ -1,0 +1,79 @@
+package fft;
+
+import com.maxeler.maxcompiler.v2.kernelcompiler.Kernel;
+import com.maxeler.maxcompiler.v2.kernelcompiler.KernelParameters;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEType;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.base.DFEVar;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEArray;
+import com.maxeler.maxcompiler.v2.kernelcompiler.types.composite.DFEArrayType;
+
+class FFTKernel extends Kernel {
+
+	private static final DFEType floatType = dfeFloat(8,24);
+
+	protected FFTKernel(KernelParameters parameters, int n, int first_level, int last_level, Boolean out_dummy, Boolean in_dummy) {
+		super(parameters);
+
+		optimization.pushDSPFactor(0.8);
+
+		DFEArrayType<DFEVar> arrayType = new DFEArrayType<DFEVar>(floatType, n);
+
+		if( in_dummy ) {
+			io.input("in_real_dummy", arrayType, constant.var(false));
+			io.input("in_imag_dummy", arrayType, constant.var(false));
+		}
+
+		DFEArray<DFEVar> in_real = io.input("in_real", arrayType);
+		DFEArray<DFEVar> in_imag = io.input("in_imag", arrayType);
+
+		DFEVar[][] real = new DFEVar[last_level - first_level + 1][n];
+		DFEVar[][] imag = new DFEVar[last_level - first_level + 1][n];
+
+		for(int i = 0; i < n; i++) {
+		    real[0][i] = in_real[i];
+		    imag[0][i] = in_imag[i];
+		}
+
+		for(int i = 1<<first_level, log_i = first_level; log_i < last_level; i *= 2, log_i++) {
+		    for(int k = 0; k < i; k++) {
+		      float w_real = (float)Math.cos(-2*Math.PI*k/(i*2));
+		      float w_imag = (float)Math.sin(-2*Math.PI*k/(i*2));
+
+		      for(int j = 0; j < n; j += i*2) {
+		        DFEVar temp_real =
+		        	real[log_i - first_level][j+k+i]*w_real - imag[log_i - first_level][j+k+i]*w_imag;
+		        DFEVar temp_imag =
+		        	real[log_i - first_level][j+k+i]*w_imag + imag[log_i - first_level][j+k+i]*w_real;
+
+		        real[log_i - first_level + 1][j+k+i] = real[log_i - first_level][j+k] - temp_real;
+		        imag[log_i - first_level + 1][j+k+i] = imag[log_i - first_level][j+k] - temp_imag;
+
+		        real[log_i - first_level + 1][j+k] = real[log_i - first_level][j+k] + temp_real;
+		        imag[log_i - first_level + 1][j+k] = imag[log_i - first_level][j+k] + temp_imag;
+		      }
+		    }
+		  }
+
+		DFEArray<DFEVar> out_real = arrayType.newInstance(this);
+
+		for (int i = 0; i < n; i++)
+			out_real[i] <== real[last_level - first_level][i];
+
+		io.output("out_real", out_real, arrayType);
+
+		DFEArray<DFEVar> out_imag = arrayType.newInstance(this);
+
+		for (int i = 0; i < n; i++)
+			out_imag[i] <== imag[last_level - first_level][i];
+
+		io.output("out_imag", out_imag, arrayType);
+
+		if( out_dummy ) {
+			io.output("out_real_dummy", out_real, arrayType, constant.var(false));
+			io.output("out_imag_dummy", out_imag, arrayType, constant.var(false));
+		}
+
+		optimization.popDSPFactor();
+	}
+
+}
